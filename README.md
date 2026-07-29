@@ -4,7 +4,7 @@ Um gerenciador gráfico de pacotes Flatpak rápido, leve e nativo, ideal para am
 
 ![Badge de Licença](https://img.shields.io/badge/Licen%C3%A7a-Software%20Livre-blue.svg)
 ![Badge de Versão](https://img.shields.io/badge/Vers%C3%A3o-1.1-green.svg)
-
+![Screenshot 1.1](https://github.com/ogoncas/flatstore/blob/main/screenshot_1.1.png)
 # Funcionalidades
 
 * **Busca Rápida:** Integração direta com a CLI do Flatpak com sistema de cache inteligente para não travar a interface.
