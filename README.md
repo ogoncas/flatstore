@@ -3,7 +3,7 @@
 Um gerenciador gráfico de pacotes Flatpak rápido, leve e nativo, ideal para ambientes de desktop GTK, como o XFCE. Desenvolvido em Python 3 com PyGObject (GTK3), o FlatStore oferece uma interface limpa para buscar, instalar, atualizar e remover aplicativos, além de gerenciar repositórios (remotes) diretamente da interface.
 
 ![Badge de Licença](https://img.shields.io/badge/Licen%C3%A7a-Software%20Livre-blue.svg)
-![Badge de Versão](https://img.shields.io/badge/Vers%C3%A3o-1.1-green.svg)
+![Badge de Versão](https://img.shields.io/badge/Vers%C3%A3o-1.13-green.svg)
 ![Screenshot 1.1](https://github.com/ogoncas/flatstore/blob/main/screenshot_1.1.png)
 # Funcionalidades
 
