@@ -55,21 +55,57 @@ sudo zypper install python3 python3-gobject gtk3 flatpak polkit
 
 Com as dependências instaladas, basta clonar o repositório e executar o script principal:
 
+### Método 1: A partir do código-fonte (Python)
+
 1. **Clone o repositório:**
+
 ```bash
 git clone https://github.com/ogoncas/flatstore.git
 cd flatstore
 
 ```
 
-
 2. **Inicie o aplicativo:**
+
 ```bash
 python3 app.py
 
 ```
 
+---
 
+### Método 2: Executando via AppImage (Portátil)
+
+O **AppImage** empacota a aplicação num único ficheiro executável, funcionando de forma independente e mantendo acesso direto aos comandos do Flatpak do seu sistema.
+
+#### Dependência do AppImage (FUSE)
+
+Para que os AppImages se montem automaticamente no Linux, o sistema precisa do suporte a FUSE. Em distribuições modernas que utilizam bibliotecas mais recentes, caso ocorra algum aviso relacionado ao `libfuse.so.2`, você pode executar o pacote extraindo-o diretamente sem dependências de sistema adicionais.
+
+#### Como rodar o AppImage:
+
+1. **Dê permissão de execução ao ficheiro:**
+
+```bash
+chmod +x FlatStore-x86_64.AppImage
+
+```
+
+2. **Execute o aplicativo:**
+
+```bash
+./FlatStore-x86_64.AppImage
+
+```
+
+> **Alternativa sem FUSE:** Se o seu sistema não possuir o suporte a FUSE nativo, você pode extrair o conteúdo do AppImage uma única vez e executá-lo diretamente como uma pasta comum:
+> ```bash
+> ./FlatStore-x86_64.AppImage --appimage-extract
+> ./squashfs-root/AppRun
+> 
+> ```
+> 
+> 
 
 > **Dica:** Como o programa faz uso do terminal para exibir logs detalhados, rodá-lo diretamente via linha de comando ajudará você a acompanhar o processo exato de download e extração dos pacotes Flatpak.
 
