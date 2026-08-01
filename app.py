@@ -1,4 +1,5 @@
 import os
+import glob
 import shutil
 import sys
 import json
@@ -25,27 +26,176 @@ CONFIG_FILE = os.path.join(CACHE_DIR, "config.json")
 DEFAULT_CACHE_TTL = 3600  
 CMD_TIMEOUT = 45  
 
-# CSS nativo para um visual plano/limpo mantendo sintonia com temas GTK/XFCE
+# CSS otimizado para harmonizar com o tema Arc e ícones Papirus
 NATIVE_FLAT_CSS = """
-button, frame, entry, window, box, flowboxchild, headerbar, listbox {
-    border-radius: 0px;
-}
 .app-card {
-    border: 1px solid mix(@theme_fg_color, @theme_bg_color, 0.82);
+    border: 1px solid mix(@theme_fg_color, @theme_bg_color, 0.85);
     background-color: @theme_bg_color;
-    padding: 2px;
+    border-radius: 4px;
+    padding: 4px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+.app-card:hover {
+    border-color: @theme_selected_bg_color;
 }
 .repo-row {
-    padding: 8px;
-    border-bottom: 1px solid mix(@theme_fg_color, @theme_bg_color, 0.9);
+    padding: 10px;
+    border-bottom: 1px solid mix(@theme_fg_color, @theme_bg_color, 0.92);
 }
 .repo-label {
     font-size: 10px;
-    background: mix(@theme_fg_color, @theme_bg_color, 0.9);
-    padding: 2px 6px;
-    border-radius: 4px;
+    font-weight: bold;
+    background: mix(@theme_selected_bg_color, @theme_bg_color, 0.8);
+    color: @theme_fg_color;
+    padding: 2px 8px;
+    border-radius: 12px;
+}
+.app-desc {
+    font-size: 10px;
+}
+.app-id-caption {
+    font-size: 9px;
+}
+.category-chip {
+    font-size: 11px;
+    padding: 3px 12px;
+    border-radius: 14px;
+    border: 1px solid mix(@theme_fg_color, @theme_bg_color, 0.8);
+    background-color: mix(@theme_fg_color, @theme_bg_color, 0.94);
+}
+.category-chip:hover {
+    border-color: @theme_selected_bg_color;
+}
+.more-link-button {
+    font-size: 11px;
 }
 """
+
+# Categorias mostradas na tela inicial. Cada categoria carrega:
+#  - "ids": aplicativos de referência que, se existirem no catálogo do usuário,
+#    aparecem primeiro (mas só entram de fato se forem encontrados — nenhum
+#    dado inventado é exibido);
+#  - "keywords": termos comparados com "nome + descrição" (em inglês, como o
+#    AppStream do Flathub normalmente publica) para classificar o restante do
+#    catálogo de forma semântica, sem depender de uma lista fixa de IDs.
+# Isso substitui o antigo preenchimento aleatório: se uma categoria não tiver
+# aplicativos de verdade relacionados ao tema, ela simplesmente fica menor
+# (ou nem aparece), em vez de ser completada com itens sem relação nenhuma.
+CATEGORY_DEFINITIONS = [
+    ("🌐 Internet e Comunicação", {
+        "ids": [
+            "org.mozilla.firefox", "org.chromium.Chromium", "com.brave.Browser",
+            "org.mozilla.Thunderbird", "com.discordapp.Discord", "org.telegram.desktop",
+            "us.zoom.Zoom", "org.qbittorrent.qBittorrent", "com.transmissionbt.Transmission",
+        ],
+        "keywords": [
+            "browser", "web browsing", "email", "mail client", "messenger", "messaging",
+            "video call", "video conferenc", "chat", "torrent", "download manager",
+            "rss", "feed reader", "irc", "voip", "social network",
+        ],
+    }),
+    ("🎬 Vídeo e Streaming", {
+        "ids": [
+            "org.videolan.VLC", "com.obsproject.Studio", "org.kde.kdenlive",
+            "org.shotcut.Shotcut", "io.mpv.Mpv", "io.github.celluloid_player.Celluloid",
+        ],
+        "keywords": [
+            "video player", "media player", "video editing", "video editor",
+            "screen record", "streaming", "subtitle", "transcod", "dvd", "webcam",
+        ],
+    }),
+    ("🎵 Áudio e Produção Musical", {
+        "ids": [
+            "com.spotify.Client", "org.audacityteam.Audacity", "com.bitwig.BitwigStudio",
+            "info.musescore.MuseScore", "org.mixxx.Mixxx",
+        ],
+        "keywords": [
+            "music", "audio editor", "audio editing", "podcast", "sheet music",
+            "dj mixing", "sound", "synth", "digital audio workstation", "streaming service",
+        ],
+    }),
+    ("🎨 Design e Gráficos", {
+        "ids": [
+            "org.gimp.GIMP", "org.kde.krita", "org.inkscape.Inkscape", "org.blender.Blender",
+            "com.figma.Desktop", "org.darktable.darktable", "com.github.PintaProject.Pinta",
+        ],
+        "keywords": [
+            "image editing", "photo editing", "raw photo", "draw", "paint", "illustration",
+            "vector graphics", "3d modeling", "animation", "render",
+        ],
+    }),
+    ("💻 Desenvolvimento", {
+        "ids": [
+            "com.visualstudio.code", "com.jetbrains.IntelliJ-IDEA-Community",
+            "io.dbeaver.DBeaverCommunity", "cc.arduino.IDE2", "com.axosoft.GitKraken",
+            "org.gnome.Builder", "com.getpostman.Postman",
+        ],
+        "keywords": [
+            "ide", "code editor", "programming", "developer", "git client", "database",
+            "sql", "compiler", "debug", "sdk", "api ",
+        ],
+    }),
+    ("🚀 Escritório e Produtividade", {
+        "ids": [
+            "org.libreoffice.LibreOffice", "org.onlyoffice.desktopeditors",
+            "md.obsidian.Obsidian", "com.jgraph.drawio.desktop", "com.todoist.Todoist",
+        ],
+        "keywords": [
+            "office suite", "document editor", "spreadsheet", "presentation", "note taking",
+            "notes", "task manager", "to-do", "pdf", "diagram", "flowchart",
+        ],
+    }),
+    ("🎮 Jogos e Emulação", {
+        "ids": [
+            "com.valvesoftware.Steam", "net.lutris.Lutris", "org.libretro.RetroArch",
+            "com.heroicgameslauncher.hgl", "info.cemu.Cemu", "com.usebottles.bottles",
+            "net.pcsx2.PCSX2", "org.ppsspp.PPSSPP",
+        ],
+        "keywords": [
+            "game", "gaming", "emulator", "arcade", "rpg", "launcher",
+            "run windows", "playstation", "nintendo",
+        ],
+    }),
+    ("🔬 Ciência e Educação", {
+        "ids": [
+            "org.kde.marble", "org.geogebra.GeoGebra", "org.octave.Octave",
+            "org.stellarium.Stellarium",
+        ],
+        "keywords": [
+            "science", "education", "learning", "mathemat", "physics", "chemistry",
+            "astronomy", "geography", "planetarium", "scientific",
+        ],
+    }),
+    ("🛠️ Sistema e Utilitários", {
+        "ids": [
+            "org.gnome.DiskUtility", "com.github.tchx84.Flatseal", "org.gnome.Boxes",
+            "com.usebottles.bottles",
+        ],
+        "keywords": [
+            "system utility", "disk", "backup", "file manager", "archive", "monitor",
+            "network tool", "virtual machine", "benchmark", "permissions",
+        ],
+    }),
+    ("🔒 Segurança e Privacidade", {
+        "ids": [
+            "org.keepassxc.KeePassXC", "org.cryptomator.Cryptomator", "com.bitwarden.desktop",
+        ],
+        "keywords": [
+            "password manager", "encrypt", "security", "privacy", "vpn",
+            "firewall", "authentication", "2fa",
+        ],
+    }),
+]
+
+# Pequena vitrine de destaques (multi-gênero, de propósito) que abre a tela
+# inicial. Só entra o que realmente existir no catálogo do usuário.
+FEATURED_APP_IDS = [
+    "org.mozilla.firefox", "com.spotify.Client", "org.videolan.VLC",
+    "com.discordapp.Discord", "org.telegram.desktop", "com.visualstudio.code",
+    "org.libreoffice.LibreOffice", "com.valvesoftware.Steam", "org.gimp.GIMP",
+    "md.obsidian.Obsidian", "com.obsproject.Studio", "com.github.tchx84.Flatseal",
+]
+
 
 class FlatpakStoreApp(Gtk.Window):
     def __init__(self):
@@ -70,13 +220,12 @@ class FlatpakStoreApp(Gtk.Window):
         # Estado de operações ativas e resultados
         self.active_operations = {}
         self.current_results_data = {}
-        # Lock (em vez de bool) para tornar a checagem "já sincronizando?" atômica
-        # e evitar corridas quando duas ações disparam _sync_all quase ao mesmo tempo.
         self.sync_lock = threading.Lock()
 
         logger.info("Iniciando FlatStore...")
         self.load_config()
         self.apply_native_css()
+        self.setup_icon_theme_search_paths()
         self.load_cache_from_disk()
 
         main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
@@ -94,8 +243,20 @@ class FlatpakStoreApp(Gtk.Window):
         self.spinner = Gtk.Spinner()
         header.pack_end(self.spinner)
 
-        self.btn_refresh = Gtk.Button(label="Sincronizar")
-        self.btn_refresh.set_tooltip_text("Sincroniza AppStream, atualiza repositórios e limpa o cache local")
+        # --- BOTÃO SINCRONIZAR (REFATORADO VISUALMENTE) ---
+        self.btn_refresh = Gtk.Button()
+        btn_refresh_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        icon_refresh = Gtk.Image.new_from_icon_name("view-refresh-symbolic", Gtk.IconSize.BUTTON)
+        lbl_refresh = Gtk.Label(label="Sincronizar")
+        
+        btn_refresh_box.pack_start(icon_refresh, False, False, 0)
+        btn_refresh_box.pack_start(lbl_refresh, False, False, 0)
+        self.btn_refresh.add(btn_refresh_box)
+
+        self.btn_refresh.set_tooltip_text(
+            "Atualiza os catálogos AppStream (Usuário e Sistema),\n"
+            "limpa o cache local e recarrega os aplicativos."
+        )
         self.btn_refresh.connect("clicked", self.on_refresh_clicked)
         header.pack_start(self.btn_refresh)
 
@@ -122,9 +283,29 @@ class FlatpakStoreApp(Gtk.Window):
         self.notebook = Gtk.Notebook()
         main_box.pack_start(self.notebook, True, True, 0)
 
-        # Aba 1: Busca e Destaques
+        # Aba 1: Início (Destaques, categorias reais e resultados de busca)
+        home_tab_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+
+        # Barra de categorias: preenchida dinamicamente depois de cada sincronização,
+        # permite pular direto para a lista completa de uma categoria ("Ver mais").
+        self.chip_bar = Gtk.FlowBox()
+        self.chip_bar.set_selection_mode(Gtk.SelectionMode.NONE)
+        self.chip_bar.set_row_spacing(6)
+        self.chip_bar.set_column_spacing(6)
+        self.chip_bar.set_homogeneous(False)
+        self.chip_bar.set_valign(Gtk.Align.START)
+        self.chip_bar.set_min_children_per_line(1)
+        self.chip_bar.set_margin_start(8)
+        self.chip_bar.set_margin_end(8)
+        self.chip_bar.set_margin_top(6)
+        self.chip_bar.set_margin_bottom(6)
+        home_tab_box.pack_start(self.chip_bar, False, False, 0)
+        home_tab_box.pack_start(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL), False, False, 0)
+
         self.results_container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        self.notebook.append_page(self.wrap_in_scroll(self.results_container), Gtk.Label(label="✨ Início"))
+        home_tab_box.pack_start(self.wrap_in_scroll(self.results_container), True, True, 0)
+
+        self.notebook.append_page(home_tab_box, Gtk.Label(label="✨ Início"))
 
         # Aba 2: Aplicativos Instalados
         self.flow_installed = self.create_flowbox()
@@ -176,13 +357,11 @@ class FlatpakStoreApp(Gtk.Window):
         self.init_data()
 
     def _clear_container(self, container):
-        """Remove e destrói widgets filhos de forma limpa sem causar vazamento de memória."""
         for child in container.get_children():
             container.remove(child)
             child.destroy()
 
     def _run_flatpak_cmd(self, args, check=False):
-        """Executa comandos de leitura do Flatpak com timeout e prevenção de bloqueio."""
         cmd = ['flatpak'] + args
         logger.debug(f"Executando (Leitura): {' '.join(cmd)}")
         try:
@@ -201,8 +380,7 @@ class FlatpakStoreApp(Gtk.Window):
             logger.error(f"Falha ao executar flatpak: {e}")
             raise
 
-    def _run_flatpak_action(self, cmd):
-        """Executa comandos de modificação garantindo suporte a PolKit/pkexec."""
+    def _run_flatpak_action(self, cmd, progress_callback=None):
         logger.info(f">>> INICIANDO AÇÃO: {' '.join(cmd)}")
         try:
             process = subprocess.Popen(
@@ -216,8 +394,11 @@ class FlatpakStoreApp(Gtk.Window):
             
             if process.stdout:
                 for line in iter(process.stdout.readline, ''):
-                    if line.strip():
-                        logger.info(f"[Flatpak] {line.strip()}")
+                    clean_line = line.strip()
+                    if clean_line:
+                        logger.info(f"[Flatpak] {clean_line}")
+                        if progress_callback:
+                            progress_callback(clean_line)
                 process.stdout.close()
                 
             return_code = process.wait()
@@ -230,14 +411,11 @@ class FlatpakStoreApp(Gtk.Window):
             raise
 
     def _parse_flatpak_table(self, stdout, num_cols=3):
-        """Converte a saída tabular (separada por TAB) de comandos flatpak em uma lista
-        de tuplas de tamanho fixo, ignorando a linha de cabeçalho e preenchendo colunas
-        ausentes com 'Desconhecido'."""
         rows = []
         if not stdout or not stdout.strip():
             return rows
         for line in stdout.strip().split('\n'):
-            if '\t' not in line or line.startswith('Name\t'):
+            if line.startswith('Name\t') or not line.strip():
                 continue
             parts = [p.strip() for p in line.split('\t')]
             if not parts or not parts[0]:
@@ -247,10 +425,6 @@ class FlatpakStoreApp(Gtk.Window):
         return rows
 
     def _list_remote_names(self, scope_flag):
-        """Retorna os nomes de repositórios configurados no escopo indicado
-        ('--user' ou '--system'), a partir de uma coluna única, ignorando o
-        cabeçalho. Usa quebra de linha (não .split() genérico) para não
-        corromper nomes de repositório que eventualmente contenham espaços."""
         res = self._run_flatpak_cmd(['remotes', scope_flag, '--columns=name'])
         if res.returncode != 0 or not res.stdout.strip():
             return []
@@ -260,7 +434,6 @@ class FlatpakStoreApp(Gtk.Window):
         ]
 
     def run_async(self, func, *args):
-        """Dispara funções em threads separadas (daemon=True) para evitar congelamento da UI."""
         threading.Thread(target=func, args=args, daemon=True).start()
 
     def load_config(self):
@@ -297,6 +470,11 @@ class FlatpakStoreApp(Gtk.Window):
     def save_cache_to_disk(self):
         with self.cache_lock:
             try:
+                now = time.time()
+                self.cache = {
+                    k: v for k, v in self.cache.items()
+                    if now - v.get('timestamp', 0) < self.cache_ttl
+                }
                 os.makedirs(CACHE_DIR, exist_ok=True)
                 with open(CACHE_FILE, 'w', encoding='utf-8') as f:
                     json.dump(self.cache, f, ensure_ascii=False)
@@ -344,8 +522,6 @@ class FlatpakStoreApp(Gtk.Window):
         for t_id, t_lbl in ttl_options:
             combo.append(t_id, t_lbl)
         if not combo.set_active_id(str(self.cache_ttl)):
-            # self.cache_ttl não corresponde a nenhuma opção (ex.: config.json editado
-            # manualmente); aplica o padrão e mantém o modelo sincronizado com a UI.
             combo.set_active(1)
             self.cache_ttl = int(ttl_options[1][0])
         combo.connect("changed", self.on_ttl_changed)
@@ -374,7 +550,7 @@ class FlatpakStoreApp(Gtk.Window):
     def show_about_dialog(self, widget):
         about = Gtk.AboutDialog(transient_for=self, modal=True)
         about.set_program_name("FlatStore")
-        about.set_version("1.2")
+        about.set_version("1.3")
         about.set_logo_icon_name("system-software-install")
         about.set_comments("Gerenciador Flatpak rápido e nativo para ambientes GTK/XFCE.\n\nGitHub: github.com/ogoncas")
         about.set_website("https://mateuscalixto.com.br")
@@ -398,13 +574,37 @@ class FlatpakStoreApp(Gtk.Window):
         provider.load_from_data(NATIVE_FLAT_CSS.encode())
         Gtk.StyleContext.add_provider_for_screen(Gdk.Screen.get_default(), provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 
+    def setup_icon_theme_search_paths(self):
+        """Registra os diretórios de ícones que o próprio flatpak já baixa junto
+        com os dados AppStream de cada remote na busca de ícones do GTK. Sem
+        isso, só aparecem ícones reais para apps já instalados; com isso, a
+        listagem da tela inicial também mostra o ícone verdadeiro de apps
+        ainda não instalados (o tema local continua servindo de reserva)."""
+        theme = Gtk.IconTheme.get_default()
+        patterns = [
+            os.path.expanduser("~/.local/share/flatpak/appstream/*/*/icons/*"),
+            os.path.expanduser("~/.local/share/flatpak/appstream/*/*/active/icons/*"),
+            "/var/lib/flatpak/appstream/*/*/icons/*",
+            "/var/lib/flatpak/appstream/*/*/active/icons/*",
+        ]
+        added = 0
+        try:
+            for pattern in patterns:
+                for path in glob.glob(pattern):
+                    if os.path.isdir(path):
+                        theme.append_search_path(path)
+                        added += 1
+            if added:
+                logger.info(f"{added} diretório(s) de ícones do AppStream registrados na busca de ícones.")
+        except Exception as e:
+            logger.warning(f"Não foi possível mapear ícones do AppStream: {e}")
+
     def create_flowbox(self):
         flow = Gtk.FlowBox()
         flow.set_valign(Gtk.Align.START)
         flow.set_selection_mode(Gtk.SelectionMode.NONE)
         flow.set_row_spacing(12)
         flow.set_column_spacing(12)
-        # Torna todos os itens do FlowBox do mesmo tamanho
         flow.set_homogeneous(True) 
         return flow
 
@@ -437,10 +637,6 @@ class FlatpakStoreApp(Gtk.Window):
         dialog.destroy()
 
     def _require_pkexec(self, on_main_thread=True):
-        """Confere se 'pkexec' está disponível antes de qualquer operação em nível
-        de sistema. Se ausente, avisa o usuário com uma mensagem acionável e
-        retorna False, para o chamador cancelar com uma causa clara em vez de
-        deixar o subprocesso falhar silenciosamente mais adiante."""
         if shutil.which("pkexec"):
             return True
 
@@ -469,15 +665,26 @@ class FlatpakStoreApp(Gtk.Window):
             pixbuf = theme.load_icon(app_id, 48, 0)
             return Gtk.Image.new_from_pixbuf(pixbuf)
         except Exception:
-            icon_name = "software-update-available" if is_update else ("package-x-generic" if is_installed else "system-run")
-            return Gtk.Image.new_from_icon_name(icon_name, Gtk.IconSize.DND)
+            if is_update:
+                icon_name = "software-update-available-symbolic" 
+            elif is_installed:
+                icon_name = "application-x-executable" 
+            else:
+                icon_name = "package-x-generic"
+                
+            return Gtk.Image.new_from_icon_name(icon_name, Gtk.IconSize.DIALOG)
+
+    def _clean_description(self, description):
+        text = (description or "").strip()
+        if not text or text == "Desconhecido":
+            return "Sem descrição disponível."
+        return text
 
     def create_app_card(self, name, app_id, repo, is_installed=False, is_update=False):
         frame = Gtk.Frame()
         frame.get_style_context().add_class("app-card")
         frame.set_tooltip_text(f"{name}\n({app_id})") 
         
-        # Define um tamanho fixo (Largura x Altura) para manter a uniformidade
         frame.set_size_request(320, 130)
         
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
@@ -485,16 +692,13 @@ class FlatpakStoreApp(Gtk.Window):
 
         top = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
         app_image = self.get_app_icon(app_id, is_installed, is_update)
-        # Impede a imagem de esticar
         top.pack_start(app_image, False, False, 0)
 
         meta = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
-        # Faz o bloco de texto expandir horizontalmente para preencher o card
         meta.set_hexpand(True) 
 
         lbl_name = Gtk.Label(label=f"<b>{name}</b>", use_markup=True, xalign=0)
         lbl_name.set_ellipsize(Pango.EllipsizeMode.END)
-        # Força a label a aceitar encolher em vez de esticar o card
         lbl_name.set_max_width_chars(1) 
         
         lbl_id = Gtk.Label(label=app_id, xalign=0)
@@ -504,7 +708,6 @@ class FlatpakStoreApp(Gtk.Window):
         
         lbl_repo = Gtk.Label(label=f"📦 {repo}", xalign=0)
         lbl_repo.get_style_context().add_class("repo-label")
-        # Previne que nomes de repositórios gigantes quebrem o layout
         lbl_repo.set_ellipsize(Pango.EllipsizeMode.END)
         lbl_repo.set_max_width_chars(1)
         
@@ -538,8 +741,8 @@ class FlatpakStoreApp(Gtk.Window):
             btn.get_style_context().add_class(Gtk.STYLE_CLASS_SUGGESTED_ACTION)
             btn.connect("clicked", lambda w: self.on_action_click(app_id, "install", repo))
             
-        # Alinha o botão na base do card para que fiquem todos na mesma altura
         btn.set_valign(Gtk.Align.END)
+        btn.set_margin_top(6)
         box.pack_end(btn, False, False, 0)
         
         frame.add(box)
@@ -569,8 +772,6 @@ class FlatpakStoreApp(Gtk.Window):
         self.run_async(self._sync_all)
 
     def _sync_all(self):
-        # Tenta adquirir o lock sem bloquear: se já houver uma sincronização em
-        # andamento, ignora esta chamada em vez de empilhar trabalho duplicado.
         if not self.sync_lock.acquire(blocking=False):
             logger.info("Sincronização já em andamento; chamada duplicada ignorada.")
             return
@@ -584,7 +785,10 @@ class FlatpakStoreApp(Gtk.Window):
             featured = self.get_from_cache(cache_key)
             if not featured:
                 featured = self._fetch_featured_from_cli()
-                self.save_to_cache(cache_key, featured)
+                
+                # CORREÇÃO: Só salva no cache se a busca realmente encontrou aplicativos
+                if featured: 
+                    self.save_to_cache(cache_key, featured)
 
             GLib.idle_add(self._render_results, featured)
             GLib.idle_add(self._render_installed)
@@ -598,39 +802,89 @@ class FlatpakStoreApp(Gtk.Window):
             self.sync_lock.release()
 
     def _update_installed_set(self):
-        res = self._run_flatpak_cmd(['list', '--app', '--columns=application'])
+        # Removida a flag '--app' para englobar runtimes e temas no controle interno
+        res = self._run_flatpak_cmd(['list', '--columns=application'])
         if res.returncode == 0 and res.stdout.strip():
             self.installed_apps = {a.strip() for a in res.stdout.strip().split('\n') if a.strip()}
         else:
             self.installed_apps = set()
 
     def _fetch_featured_from_cli(self):
-        """Otimizado para buscar rapidamente destaques sem engasgar a interface."""
-        categories = {
-            "🚀 Produtividade e Utilidades": "office",
-            "🎨 Mídia e Gráficos": "media",
-            "💻 Desenvolvimento": "development",
-            "🎮 Jogos": "games"
-        }
-        
         results = {}
-        for cat_name, kw in categories.items():
-            try:
-                res = self._run_flatpak_cmd(['search', kw, '--columns=name,application,remotes'])
-                rows = self._parse_flatpak_table(res.stdout) if res.returncode == 0 else []
-            except Exception as e:
-                logger.warning(f"Erro ao buscar destaques para {cat_name}: {e}")
-                continue
+        target_items_per_category = 6
+        all_apps = {}
+        available_app_ids = []
 
-            cat_apps = []
-            for n, i, r in rows[:4]:
-                entry = (n, i, r.split(',')[0].strip())
-                if entry not in cat_apps:
-                    cat_apps.append(entry)
+        try:
+            # 1. Tentativa Principal: puxar a árvore completa do(s) repositório(s),
+            # já trazendo a descrição (usada na classificação semântica abaixo)
+            res = self._run_flatpak_cmd(['remote-ls', '--app', '--columns=name,application,remotes,description'])
 
-            if cat_apps:
-                results[cat_name] = cat_apps
-                
+            # Usamos o _parse_flatpak_table para garantir que a tabulação será lida corretamente
+            if res.returncode == 0 and res.stdout.strip():
+                rows = self._parse_flatpak_table(res.stdout, num_cols=4)
+                for name, app_id, remotes, description in rows:
+                    remote = remotes.split(',')[0].strip() if remotes else "Desconhecido"
+                    all_apps[app_id] = (name, app_id, remote, description)
+                    available_app_ids.append(app_id)
+
+            # 2. PLANO B (Emergência): Se a lista vier vazia, usa o AppStream local
+            # (search), uma consulta por categoria com a primeira keyword.
+            if not all_apps:
+                logger.warning("Catálogo global vazio. Ativando Plano B (AppStream)...")
+                for cat, data in CATEGORY_DEFINITIONS:
+                    # Usa a primeira keyword de cada categoria para preencher a tela rapidamente
+                    kw = data["keywords"][0]
+                    res_fallback = self._run_flatpak_cmd(['search', kw, '--columns=name,application,remotes,description'])
+                    rows = self._parse_flatpak_table(res_fallback.stdout, num_cols=4)
+                    for name, app_id, remotes, description in rows:
+                        if app_id not in all_apps:
+                            remote = remotes.split(',')[0].strip() if remotes else "Desconhecido"
+                            all_apps[app_id] = (name, app_id, remote, description)
+                            available_app_ids.append(app_id)
+
+            used_apps = set()
+
+            # 3. Destaques: vitrine fixa definida em FEATURED_APP_IDS, na ordem
+            # declarada — só entra o que realmente existir no catálogo do usuário.
+            featured_ids_found = [app_id for app_id in FEATURED_APP_IDS if app_id in all_apps]
+            if featured_ids_found:
+                results["🌟 Destaques"] = [all_apps[app_id][:3] for app_id in featured_ids_found]
+                used_apps.update(featured_ids_found)
+
+            # 4. Categorias temáticas (Ouro -> Semântica por nome + id + descrição).
+            # Sem camada aleatória: uma categoria sem correspondências reais fica
+            # menor (ou nem aparece), em vez de ser completada com itens sem relação.
+            for category, data in CATEGORY_DEFINITIONS:
+                cat_apps = []
+
+                # Camada Ouro
+                for req_id in data["ids"]:
+                    if req_id in all_apps and req_id not in used_apps:
+                        cat_apps.append(all_apps[req_id][:3])
+                        used_apps.add(req_id)
+
+                # Camada Semântica
+                if len(cat_apps) < target_items_per_category:
+                    for app_id in available_app_ids:
+                        if len(cat_apps) >= target_items_per_category:
+                            break
+                        if app_id in used_apps:
+                            continue
+
+                        name, _id, _remote, description = all_apps[app_id]
+                        haystack = f"{name} {app_id} {description}".lower()
+
+                        if any(kw in haystack for kw in data["keywords"]):
+                            cat_apps.append(all_apps[app_id][:3])
+                            used_apps.add(app_id)
+
+                if cat_apps:
+                    results[category] = cat_apps
+
+        except Exception as e:
+            logger.error(f"Erro Crítico ao montar tela inicial: {e}")
+
         return results
 
     def _fetch_updates(self):
@@ -654,29 +908,45 @@ class FlatpakStoreApp(Gtk.Window):
         self.flow_updates.show_all()
 
     def on_update_all_clicked(self, widget):
-        self.start_loading("Atualizando todo o sistema... Acompanhe no terminal.")
+        self.start_loading("Iniciando atualizações...")
         self.run_async(self._execute_update_all)
 
     def _execute_update_all(self):
-        logger.info("Executando atualização global...")
-        try:
-            self._run_flatpak_action(['flatpak', 'update', '--user', '-y', '--noninteractive'])
+        logger.info("Executando atualização global e limpeza de runtimes...")
+        
+        def ui_update(msg):
+            short_msg = msg[:75] + "..." if len(msg) > 75 else msg
+            GLib.idle_add(self.status_label.set_text, f"Processando: {short_msg}")
 
-            # A lista de atualizações pendentes (aba "Atualizações") combina apps de
-            # escopo usuário E sistema, mas antes só o escopo usuário era de fato
-            # atualizado aqui. Sem pkexec, avisamos e seguimos (não bloqueamos o
-            # que já foi atualizado com sucesso no escopo usuário).
+        try:
+            # 1. Atualiza TUDO no escopo do Usuário
+            GLib.idle_add(self.status_label.set_text, "[1/4] Atualizando pacotes do usuário...")
+            self._run_flatpak_action(['flatpak', 'update', '--user', '-y', '--noninteractive'], progress_callback=ui_update)
+
+            # 2. Atualiza TUDO no escopo do Sistema
             if shutil.which("pkexec"):
-                self._run_flatpak_action(['pkexec', 'flatpak', 'update', '--system', '-y', '--noninteractive'])
+                GLib.idle_add(self.status_label.set_text, "[2/4] Atualizando pacotes do sistema...")
+                self._run_flatpak_action(['pkexec', 'flatpak', 'update', '--system', '-y', '--noninteractive'], progress_callback=ui_update)
             else:
-                logger.warning("pkexec indisponível: atualizações em nível de sistema foram puladas.")
+                logger.warning("pkexec indisponível: atualizações de sistema puladas.")
+
+            # 3. Limpeza runtimes (Usuário)
+            GLib.idle_add(self.status_label.set_text, "[3/4] Limpando runtimes antigos (Usuário)...")
+            self._run_flatpak_action(['flatpak', 'uninstall', '--unused', '--user', '-y', '--noninteractive'], progress_callback=ui_update)
+            
+            # 4. Limpeza runtimes (Sistema)
+            if shutil.which("pkexec"):
+                GLib.idle_add(self.status_label.set_text, "[4/4] Limpando runtimes antigos (Sistema)...")
+                self._run_flatpak_action(['pkexec', 'flatpak', 'uninstall', '--unused', '--system', '-y', '--noninteractive'], progress_callback=ui_update)
 
             self.clear_disk_cache()
             self._sync_all()
-            GLib.idle_add(self.stop_loading, "Todas as atualizações concluídas com sucesso!")
+            GLib.idle_add(self.stop_loading, "Sistema, temas e dependências atualizados e limpos!")
+            
         except Exception as e:
-            logger.error(f"Erro ao atualizar todos os aplicativos: {e}")
-            GLib.idle_add(self.stop_loading, f"Falha na atualização: {e}")
+            logger.error(f"Erro ao atualizar: {e}")
+            GLib.idle_add(self.show_error_dialog, "Falha na Atualização", f"Ocorreu um erro durante o processo:\n{e}")
+            GLib.idle_add(self.stop_loading, "Atualização concluída com erros.")
 
     def _fetch_repos(self):
         res = self._run_flatpak_cmd(['remotes', '--columns=name,url'])
@@ -802,16 +1072,10 @@ class FlatpakStoreApp(Gtk.Window):
 
     def _execute_remove_repo(self, name):
         try:
-            # O botão "Remover" não sabe em qual escopo o repositório foi cadastrado.
-            # Antes, a remoção assumia sempre '--user', então repositórios adicionados
-            # como 'Sistema' ou 'Ambos' pareciam remover mas continuavam lá. Aqui
-            # detectamos em qual(is) escopo(s) o nome existe e removemos de cada um.
             in_user = name in self._list_remote_names('--user')
             in_system = name in self._list_remote_names('--system')
 
             if not in_user and not in_system:
-                # Não foi possível confirmar o escopo (ex.: já removido antes);
-                # tenta o caminho mais comum, que não exige privilégios administrativos.
                 in_user = True
 
             if in_user:
@@ -900,17 +1164,24 @@ class FlatpakStoreApp(Gtk.Window):
     def _render_installed(self):
         self._clear_container(self.flow_installed)
         try:
-            res = self._run_flatpak_cmd(['list', '--app', '--columns=name,application,origin'])
+            # Removida a flag '--app' da listagem visual para vermos temas/runtimes
+            res = self._run_flatpak_cmd(['list', '--columns=name,application,origin'])
             items = self._parse_flatpak_table(res.stdout) if res.returncode == 0 else []
 
+            count = 0
             if items:
                 for n, i, r in items:
+                    # Filtro inteligente para não poluir com pacotes internos
+                    if i.endswith('.Locale') or i.endswith('.Debug') or i.endswith('.Sources'):
+                        continue
                     self.flow_installed.add(self.create_app_card(n, i, r, True))
-            else:
-                self.flow_installed.add(self.create_empty_state_label("Você ainda não instalou nenhum aplicativo via Flatpak."))
+                    count += 1
+            
+            if count == 0:
+                self.flow_installed.add(self.create_empty_state_label("Nenhum pacote instalado encontrado."))
         except Exception as e:
-            logger.error(f"Erro ao listar aplicativos instalados: {e}")
-            self.flow_installed.add(self.create_empty_state_label(f"Erro ao listar apps: {e}"))
+            logger.error(f"Erro ao listar pacotes instalados: {e}")
+            self.flow_installed.add(self.create_empty_state_label(f"Erro ao listar pacotes: {e}"))
             
         self.flow_installed.show_all()
 
@@ -943,9 +1214,6 @@ class FlatpakStoreApp(Gtk.Window):
             scope_pref = "user" if response == 1 else "system"
             if scope_pref == "system" and not self._require_pkexec():
                 return
-            # A verificação de disponibilidade do repositório (e, para uninstall/update,
-            # a resolução do escopo) é feita em segundo plano em _execute_action, para não
-            # bloquear a interface com chamadas ao flatpak na thread principal do GTK.
 
         elif action == "uninstall":
             dialog = Gtk.MessageDialog(
@@ -956,8 +1224,8 @@ class FlatpakStoreApp(Gtk.Window):
                 text=f"Remover {app_id}?"
             )
             dialog.format_secondary_text(
-                "Esta ação irá desinstalar o aplicativo do seu sistema.\n"
-                "Os dados pessoais salvos por ele (em ~/.var/app) geralmente não são apagados."
+                "Esta ação irá desinstalar o pacote do seu sistema.\n"
+                "No caso de aplicativos, dados pessoais salvos (em ~/.var/app) não são apagados."
             )
             dialog.add_button("Cancelar", Gtk.ResponseType.CANCEL)
             btn_confirm = dialog.add_button("Remover", Gtk.ResponseType.OK)
@@ -972,14 +1240,17 @@ class FlatpakStoreApp(Gtk.Window):
         self.active_operations[app_id] = action
         self._render_all_views()
 
-        # Obtém a query atual na thread principal do GTK para evitar violação de thread-safety
         current_query = self.search_entry.get_text().strip()
 
         msg = {"install": "Instalando", "uninstall": "Removendo", "update": "Atualizando"}.get(action, "Processando")
-        self.start_loading(f"{msg} {app_id}... Acompanhe no terminal.")
+        self.start_loading(f"{msg} {app_id}...")
         self.run_async(self._execute_action, action, app_id, repo, scope_pref, current_query)
 
     def _execute_action(self, action, app_id, repo, scope_pref, current_query=""):
+        def ui_update(msg):
+            short_msg = msg[:75] + "..." if len(msg) > 75 else msg
+            GLib.idle_add(self.status_label.set_text, f"{app_id}: {short_msg}")
+
         try:
             if action == "install":
                 scope = "--system" if scope_pref == "system" else "--user"
@@ -1017,7 +1288,7 @@ class FlatpakStoreApp(Gtk.Window):
                 return
 
             logger.info(f"Usuário solicitou ação: {action} para {app_id} no escopo {scope}")
-            self._run_flatpak_action(cmd)
+            self._run_flatpak_action(cmd, progress_callback=ui_update)
             
             self.clear_disk_cache()
             self._sync_all()
@@ -1028,7 +1299,8 @@ class FlatpakStoreApp(Gtk.Window):
             GLib.idle_add(self.stop_loading, f"Operação em {app_id} concluída com sucesso.")
         except Exception as e:
             logger.error(f"Erro na ação {action} para {app_id}: {e}")
-            GLib.idle_add(self.stop_loading, f"Falha ao modificar {app_id}: verifique os logs.")
+            GLib.idle_add(self.show_error_dialog, "Erro na Operação", f"Não foi possível modificar {app_id}:\n{e}")
+            GLib.idle_add(self.stop_loading, "Operação cancelada ou falhou.")
         finally:
             def _cleanup():
                 self.active_operations.pop(app_id, None)
@@ -1069,17 +1341,21 @@ class FlatpakStoreApp(Gtk.Window):
         if scope == "--system" and not self._require_pkexec():
             return
         
-        self.start_loading(f"Instalando {app_id}... Acompanhe no terminal.")
+        self.start_loading(f"Instalando {app_id}...")
         self.run_async(self._execute_install_ref, ref_file, scope, app_id)
 
     def _execute_install_ref(self, ref_file, scope, app_id):
+        def ui_update(msg):
+            short_msg = msg[:75] + "..." if len(msg) > 75 else msg
+            GLib.idle_add(self.status_label.set_text, f"{app_id}: {short_msg}")
+
         try:
             if scope == "--system":
                 cmd = ['pkexec', 'flatpak', 'install', '--system', '-y', '--noninteractive', ref_file]
             else:
                 cmd = ['flatpak', 'install', '--user', '-y', '--noninteractive', ref_file]
 
-            self._run_flatpak_action(cmd)
+            self._run_flatpak_action(cmd, progress_callback=ui_update)
             
             self.clear_disk_cache()
             self._sync_all()
@@ -1087,21 +1363,52 @@ class FlatpakStoreApp(Gtk.Window):
             GLib.idle_add(self.stop_loading, f"Instalação do arquivo {app_id} concluída.")
         except Exception as e:
             logger.error(f"Erro ao instalar arquivo .flatpakref: {e}")
-            GLib.idle_add(self.stop_loading, "Falha na instalação: verifique o terminal.")
+            GLib.idle_add(self.show_error_dialog, "Falha na Instalação", f"Não foi possível instalar o arquivo local:\n{e}")
+            GLib.idle_add(self.stop_loading, "Falha na instalação.")
 
     def on_refresh_clicked(self, widget):
-        self.clear_disk_cache()
-        self.start_loading("Sincronizando catálogos... Acompanhe no terminal.")
+        self.start_loading("Iniciando sincronização de repositórios...")
         self.run_async(self._refresh_repos)
 
     def _refresh_repos(self):
-        logger.info("Executando atualização de repositórios (AppStream)...")
+        logger.info("Executando sincronização completa de repositórios...")
+
+        def ui_update(msg):
+            short_msg = msg[:70] + "..." if len(msg) > 70 else msg
+            GLib.idle_add(self.status_label.set_text, f"Sincronizando: {short_msg}")
+
         try:
-            self._run_flatpak_action(['flatpak', 'update', '--appstream'])
+            # 1. Limpeza do cache
+            GLib.idle_add(self.status_label.set_text, "[1/4] Limpando cache local...")
+            self.clear_disk_cache()
+            time.sleep(0.2) 
+
+            # 2. AppStream Usuário
+            GLib.idle_add(self.status_label.set_text, "[2/4] Atualizando AppStream (Usuário)...")
+            try:
+                self._run_flatpak_action(['flatpak', 'update', '--appstream', '--user'], progress_callback=ui_update)
+            except Exception as e_user:
+                logger.warning(f"Aviso ao atualizar AppStream do usuário: {e_user}")
+
+            # 3. AppStream Sistema
+            if shutil.which("pkexec"):
+                GLib.idle_add(self.status_label.set_text, "[3/4] Atualizando AppStream (Sistema)...")
+                try:
+                    self._run_flatpak_action(['pkexec', 'flatpak', 'update', '--appstream', '--system'], progress_callback=ui_update)
+                except Exception as e_sys:
+                    logger.warning(f"Aviso ao atualizar AppStream de sistema: {e_sys}")
+            else:
+                logger.info("pkexec indisponível: etapa de AppStream do sistema pulada.")
+
+            # 4. Sincroniza abas
+            GLib.idle_add(self.status_label.set_text, "[4/4] Recarregando listas de aplicativos...")
             self._sync_all()
+            GLib.idle_add(self.stop_loading, "Sincronização de catálogos concluída com sucesso!")
+
         except Exception as e:
-            logger.error(f"Erro ao atualizar AppStream: {e}")
-            GLib.idle_add(self.stop_loading, f"Falha na sincronização: {e}")
+            logger.error(f"Erro durante a sincronização de repositórios: {e}")
+            GLib.idle_add(self.show_error_dialog, "Erro na Sincronização", f"Ocorreu uma falha ao sincronizar os catálogos do Flatpak:\n{e}")
+            GLib.idle_add(self.stop_loading, "Falha na sincronização de catálogos.")
 
     def on_destroy(self, widget):
         logger.info("Encerrando FlatStore...")
