@@ -6,7 +6,9 @@ import json
 import time
 import subprocess
 import threading
+import concurrent.futures
 import logging
+from urllib.parse import urlparse
 import gi
 
 gi.require_version('Gtk', '3.0')
@@ -26,7 +28,26 @@ CONFIG_FILE = os.path.join(CACHE_DIR, "config.json")
 DEFAULT_CACHE_TTL = 3600  
 CMD_TIMEOUT = 45  
 
-# CSS otimizado para harmonizar com o tema Arc e ícones Papirus
+# Caminhos absolutos resolvidos uma única vez na inicialização. Evita depender da ordem
+# do PATH do usuário em cada chamada de subprocesso (reduz a chance de um binário incorreto
+# ou malicioso ser priorizado em algum diretório anterior do PATH) e detecta a ausência das
+# ferramentas de forma antecipada e centralizada. FLATPAK_BIN sempre cai para o nome "flatpak"
+# quando não resolvido, preservando as mensagens de erro claras já existentes no app.
+FLATPAK_PATH = shutil.which("flatpak")
+FLATPAK_BIN = FLATPAK_PATH or "flatpak"
+PKEXEC_BIN = shutil.which("pkexec")
+
+# Padrões de diretórios de ícones do AppStream registrados no tema de ícones do GTK.
+# Reutilizados na inicialização e após cada sincronização de AppStream, já que um novo
+# remoto (ou uma atualização de catálogo) pode revelar diretórios de ícones inéditos.
+ICON_SEARCH_PATTERNS = [
+    os.path.expanduser("~/.local/share/flatpak/appstream/*/*/icons/*"),
+    os.path.expanduser("~/.local/share/flatpak/appstream/*/*/active/icons/*"),
+    "/var/lib/flatpak/appstream/*/*/icons/*",
+    "/var/lib/flatpak/appstream/*/*/active/icons/*",
+]
+
+# CSS elaborado para harmonizar com o tema Arc e ícones Papirus
 NATIVE_FLAT_CSS = """
 .app-card {
     border: 1px solid mix(@theme_fg_color, @theme_bg_color, 0.85);
@@ -210,6 +231,11 @@ class FlatpakStoreApp(Gtk.Window):
         self.current_results_data = {}
         self.sync_lock = threading.Lock()
 
+        # Cache de ícones (Pixbuf) por app_id: evita repetir a busca em disco no tema de
+        # ícones a cada re-render das abas Início/Instalados/Atualizações.
+        self.icon_cache = {}
+        self._icon_theme_signal_connected = False
+
         logger.info("Iniciando FlatStore...")
         self.load_config()
         self.apply_native_css()
@@ -334,7 +360,7 @@ class FlatpakStoreApp(Gtk.Window):
             child.destroy()
 
     def _run_flatpak_cmd(self, args, check=False):
-        cmd = ['flatpak'] + args
+        cmd = [FLATPAK_BIN] + args
         logger.debug(f"Executando (Leitura): {' '.join(cmd)}")
         try:
             return subprocess.run(
@@ -419,21 +445,31 @@ class FlatpakStoreApp(Gtk.Window):
         threading.Thread(target=func, args=args, daemon=True).start()
 
     def load_config(self):
+        self.cache_ttl = DEFAULT_CACHE_TTL
+        self.clear_on_exit = False
         try:
             if os.path.exists(CONFIG_FILE):
                 with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
                     cfg = json.load(f)
-                    self.cache_ttl = cfg.get("cache_ttl", DEFAULT_CACHE_TTL)
-                    self.clear_on_exit = cfg.get("clear_on_exit", False)
+                    ttl = cfg.get("cache_ttl", DEFAULT_CACHE_TTL)
+                    # Só aceita um TTL numérico dentro de uma faixa sã (1 min a 30 dias).
+                    # Protege contra um config.json corrompido/editado à mão travando as
+                    # comparações de tempo feitas mais adiante (get_from_cache, etc.).
+                    if isinstance(ttl, (int, float)) and not isinstance(ttl, bool) and 60 <= ttl <= 2592000:
+                        self.cache_ttl = int(ttl)
+                    self.clear_on_exit = bool(cfg.get("clear_on_exit", False))
         except Exception as e:
             logger.warning(f"Erro ao carregar configurações: {e}")
             self.cache_ttl = DEFAULT_CACHE_TTL
+            self.clear_on_exit = False
 
     def save_config(self):
         try:
             os.makedirs(CACHE_DIR, exist_ok=True)
+            os.chmod(CACHE_DIR, 0o700)
             with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
                 json.dump({"cache_ttl": self.cache_ttl, "clear_on_exit": self.clear_on_exit}, f)
+            os.chmod(CONFIG_FILE, 0o600)
         except Exception as e:
             logger.error(f"Erro ao salvar configurações: {e}")
 
@@ -458,8 +494,10 @@ class FlatpakStoreApp(Gtk.Window):
                     if now - v.get('timestamp', 0) < self.cache_ttl
                 }
                 os.makedirs(CACHE_DIR, exist_ok=True)
+                os.chmod(CACHE_DIR, 0o700)
                 with open(CACHE_FILE, 'w', encoding='utf-8') as f:
                     json.dump(self.cache, f, ensure_ascii=False)
+                os.chmod(CACHE_FILE, 0o600)
             except Exception as e:
                 logger.error(f"Erro ao salvar cache no disco: {e}")
 
@@ -538,7 +576,7 @@ class FlatpakStoreApp(Gtk.Window):
     def show_about_dialog(self, widget):
         about = Gtk.AboutDialog(transient_for=self, modal=True)
         about.set_program_name("FlatStore")
-        about.set_version("1.3.1")
+        about.set_version("1.3.2")
         about.set_logo_icon_name("system-software-install")
         about.set_comments("Gerenciador Flatpak rápido e nativo para ambientes GTK/XFCE.\n\nGitHub: github.com/ogoncas")
         about.set_website("https://mateuscalixto.com.br")
@@ -790,7 +828,6 @@ class FlatpakStoreApp(Gtk.Window):
             self.sync_lock.release()
 
     def _update_installed_set(self):
-        # CORREÇÃO: Incluído '--all' para abranger runtimes, extensões e temas
         res = self._run_flatpak_cmd(['list', '--all', '--columns=application'])
         if res.returncode == 0 and res.stdout.strip():
             self.installed_apps = {a.strip() for a in res.stdout.strip().split('\n') if a.strip()}
@@ -804,11 +841,6 @@ class FlatpakStoreApp(Gtk.Window):
         available_app_ids = []
 
         try:
-            # Usa exclusivamente o AppStream local (via 'flatpak search' por categoria).
-            # O antigo Plano A ('remote-ls --app') foi removido: ele dependia de reconsultar
-            # o catálogo completo do remoto e, neste ambiente, sempre voltava vazio — cada
-            # abertura do app gerava o aviso "Catálogo global vazio..." e um comando
-            # desperdiçado antes de cair no Plano B. Agora vamos direto ao que funciona.
             logger.info("Montando tela inicial via AppStream local (busca por categoria)...")
             for cat, data in CATEGORY_DEFINITIONS:
                 kw = data["keywords"][0]
@@ -858,12 +890,6 @@ class FlatpakStoreApp(Gtk.Window):
         return results
 
     def _fetch_updates(self):
-        # CORREÇÃO: 'flatpak list' não possui a flag '--updates' (ela existe apenas em
-        # 'flatpak remote-ls'). O comando antigo ('list --all --updates ...') sempre
-        # retornava "error: Unknown option --updates" (returncode 1), então a lista
-        # ficava vazia mesmo havendo atualizações reais. Além disso, 'remote-ls' olha
-        # por padrão apenas o escopo --system, então consultamos --user e --system
-        # separadamente e combinamos o resultado (evitando duplicatas).
         combined = []
         seen = set()
         for scope_flag in ('--user', '--system'):
