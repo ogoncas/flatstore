@@ -64,7 +64,7 @@ sudo zypper install python3 python3-gobject gtk3 flatpak polkit
 
 Com as dependências instaladas, basta clonar o repositório e executar o script principal:
 
-### Método 1: A partir do código-fonte (Python)
+### Método 1: A partir do instalador (Escrito em Python)
 
 1. **Clone o repositório:**
 
@@ -74,14 +74,14 @@ cd flatstore
 
 ```
 
-2. **Inicie o aplicativo:**
+2. **Inicie o instalador:**
 
 ```bash
-python3 app.py
+python3 installer.py
 
 ```
 
-> **Dica:** Você também pode abrir arquivos de instalação diretamente pelo terminal executando: `python3 app.py arquivo.flatpakref`
+> **Dica:** Você também pode abrir arquivos de instalação diretamente pelo terminal executando: `flatstore arquivo.flatpakref`
 
 ---
 
