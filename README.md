@@ -2,13 +2,34 @@
 
 Um gerenciador gráfico de pacotes Flatpak rápido, leve e nativo, ideal para ambientes de desktop GTK, como o XFCE. Desenvolvido em Python 3 com PyGObject (GTK3), o FlatStore oferece uma interface limpa para buscar, instalar, atualizar e remover aplicativos, além de gerenciar repositórios (remotes) diretamente da interface.
 
-## Novidades da Versão 1.3
+## Novidades da Versão 1.3.2
 
-* **Categorias Semânticas e Destaques:** A tela inicial agora exibe uma vitrine real de aplicativos baseada em buscas semânticas nas descrições do AppStream, sem preencher categorias com dados irrelevantes.
-* **Sincronização Integrada:** Novo botão "Sincronizar" que atualiza automaticamente os catálogos AppStream (Usuário e Sistema) e limpa o cache local.
-* **Limpeza Automática:** O botão "Atualizar Tudo" agora atualiza os aplicativos e faz a limpeza automática de runtimes não utilizados (`--unused`).
-* **Suporte a Arquivos Locais:** Suporte nativo para abrir e instalar arquivos `.flatpakref` ou `.flatpak` via interface, permitindo a escolha do escopo (Usuário ou Sistema).
-* **Ícones Nativos:** Mapeamento automático dos diretórios de ícones do AppStream para exibir os ícones originais de aplicativos mesmo antes de serem instalados.
+### 1. Organização de Importações e Constantes
+
+* **Adição de Bibliotecas para Otimização:** Foram incluídas importações necessárias para habilitar o paralelismo (processamento concorrente ou assíncrono).
+* **Validação de URL:** Adicionadas estruturas e validações direcionadas a URLs para garantir a integridade dos dados recebidos.
+
+---
+
+### 2. Centralização de Caminhos e Inicialização
+
+* **Resolução de Caminhos Absolutos:** Os caminhos para ferramentas como `flatpak` e `pkexec` foram resolvidos de forma centralizada e padronizada, evitando falhas de execução dependentes do ambiente.
+* **Cache de Ícones:** Foi adicionado o cache de ícones associados ao `app_id` diretamente no estado da aplicação, otimizando o desempenho visual e evitando requisições desnecessárias.
+
+---
+
+### 3. Blindagem de Execução de Comandos (Segurança)
+
+* **Prevenção de Injeção de Argumentos:** O código foi alterado para utilizar binários resolvidos em vez de chamadas genéricas, blindando a aplicação contra ataques de injeção de argumentos.
+* **Uso de Caminhos Absolutos:** Na rotina de leitura (como a leitura do Flatpak), passou a ser utilizado o caminho absoluto correspondente, garantindo que o programa execute exatamente o binário esperado.
+
+---
+
+### 4. Validação de Dados e Configurações
+
+* **Validação de Tipos:** Identificou-se a necessidade de validar tipos booleanos em verificações numéricas, prevenindo comportamentos inesperados causados por conversões incorretas de dados.
+* **Carregamento de Configurações (JSON):** A função de carregamento de configuração recebeu validações e limites para os valores carregados via arquivo JSON, evitando falhas ou comparações de tipos incorretos.
+* **Restrição de Permissões:** Foram aplicadas restrições de permissões nos diretórios e arquivos de cache, garantindo que apenas o próprio usuário autorizado tenha acesso a esses dados sensíveis.
 
 ---
 
